@@ -1,6 +1,6 @@
 # EpiLongAI
 
-**Production-grade deep learning pipeline for Oxford Nanopore (ONT) methylation data analysis and preterm birth prediction.**
+**Production-grade deep learning pipeline for Oxford Nanopore (ONT) methylation data analysis and phenotype prediction.**
 
 [![CI](https://github.com/glbala87/EpiLongAI/actions/workflows/ci.yml/badge.svg)](https://github.com/glbala87/EpiLongAI/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
@@ -11,7 +11,7 @@
 
 ## Overview
 
-EpiLongAI is an end-to-end pipeline for training deep learning models on ONT sequencing data integrated with methylation features. It is designed for **preterm birth (PTB) vs full-term birth (FTB)** classification from maternal or cord blood methylation profiles, with extensibility to any binary/multiclass phenotype prediction from methylation data.
+EpiLongAI is an end-to-end pipeline for training deep learning models on ONT sequencing data integrated with methylation features. It supports **any binary, multiclass, or regression phenotype** prediction from methylation data — including but not limited to preterm birth, cancer subtypes, neurological disorders, aging, and environmental exposure effects. The pipeline is phenotype-agnostic: define your labels in a metadata file and the entire pipeline adapts.
 
 ### Key Features
 
@@ -591,12 +591,23 @@ ruff check epilongai/ tests/
 
 ## Biological Context
 
-### Why methylation for preterm birth?
+### Why ONT methylation?
 
-- DNA methylation at CpG sites is a stable epigenetic mark measurable from blood
-- Preterm birth is associated with altered methylation at hundreds of loci
-- ONT long reads provide native methylation detection without bisulfite conversion
-- Methylation patterns in cord/maternal blood may serve as non-invasive biomarkers
+- DNA methylation at CpG sites is a stable epigenetic mark measurable from blood, tissue, or any biological sample
+- ONT long reads detect methylation natively during sequencing — no bisulfite conversion needed
+- Long reads (10–100kb) preserve haplotype and long-range methylation structure
+- Methylation is implicated in hundreds of phenotypes: cancer, preterm birth, neurodegeneration, aging, metabolic disease, immune disorders, environmental exposures
+
+### Example use cases
+
+| Phenotype | Labels | Sample type |
+|---|---|---|
+| Preterm birth | PTB vs FTB | Cord/maternal blood |
+| Cancer subtyping | Tumor type A/B/C | Tumor biopsy |
+| Aging clock | Chronological age (regression) | Blood |
+| Smoking exposure | Smoker vs non-smoker | Blood/lung tissue |
+| Neurological disease | Case vs control | Brain tissue / CSF |
+| Immune cell deconvolution | Cell type proportions (regression) | PBMCs |
 
 ### Why deep learning?
 
@@ -620,7 +631,7 @@ If you use EpiLongAI in your research, please cite:
 
 ```bibtex
 @software{epilongai2026,
-  title = {EpiLongAI: Deep Learning for Oxford Nanopore Methylation Analysis},
+  title = {EpiLongAI: Deep Learning Pipeline for Oxford Nanopore Methylation-Based Phenotype Prediction},
   year = {2026},
   url = {https://github.com/glbala87/EpiLongAI}
 }

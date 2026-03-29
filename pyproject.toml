@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "epilongai"
 version = "0.1.0"
-description = "Deep learning pipeline for Oxford Nanopore methylation data — preterm birth prediction"
+description = "Deep learning pipeline for Oxford Nanopore methylation data — phenotype prediction from ONT methylation"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

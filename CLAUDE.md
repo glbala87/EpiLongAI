@@ -1,7 +1,7 @@
 # EpiLongAI — Developer Guide
 
 ## What is this project?
-A production-grade deep learning pipeline for predicting preterm birth (PTB) from Oxford Nanopore (ONT) methylation data. Designed for hospital/research environments.
+A production-grade deep learning pipeline for phenotype prediction from Oxford Nanopore (ONT) methylation data. Supports any binary, multiclass, or regression phenotype. Designed for hospital/research environments.
 
 ## Quick start
 ```bash

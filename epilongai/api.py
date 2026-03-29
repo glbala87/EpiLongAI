@@ -31,7 +31,7 @@ from pydantic import BaseModel
 # ── App setup ────────────────────────────────────────────────────────────
 app = FastAPI(
     title="EpiLongAI",
-    description="ONT methylation deep learning prediction API",
+    description="ONT methylation deep learning prediction API — any phenotype",
     version="0.1.0",
 )
 
