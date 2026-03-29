@@ -1,0 +1,40 @@
+# =============================================================================
+# EpiLongAI — Default configuration
+# =============================================================================
+
+# --- Data ingestion ---
+ingestion:
+  file_format: "auto"          # auto | bedmethyl | tabular
+  separator: "\t"
+  chunk_size: 500_000          # rows per chunk for large files
+  min_coverage: 5              # discard sites with coverage below this
+  columns:                     # expected column mapping (auto-detected if null)
+    chr: null
+    start: null
+    end: null
+    strand: null
+    coverage: null
+    modified_count: null
+    beta: null
+
+# --- Windowing ---
+windowing:
+  window_size: 1000            # base pairs
+  stride: 1000                 # base pairs (stride == window_size → non-overlapping)
+  min_cpgs_per_window: 3       # skip windows with fewer CpG calls
+  chromosomes: null            # null → all chromosomes; or list like [chr1, chr2]
+  extract_sequence: false      # whether to pull FASTA sequence per window
+
+# --- Region labeling (DMR-style) ---
+labeling:
+  group_column: "group"        # column in metadata distinguishing case/control
+  case_label: "PTB"
+  control_label: "FTB"
+  delta_beta_threshold: 0.1
+  pvalue_threshold: 0.05
+  test_method: "mannwhitneyu"  # mannwhitneyu | ttest
+
+# --- Logging ---
+logging:
+  level: "INFO"
+  log_file: "logs/epilongai.log"

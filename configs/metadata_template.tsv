@@ -1,0 +1,5 @@
+sample_id	group	phenotype	batch	source
+sample_001	PTB	preterm_birth	batch1	cord_blood
+sample_002	FTB	full_term_birth	batch1	cord_blood
+sample_003	PTB	preterm_birth	batch2	maternal_blood
+sample_004	FTB	full_term_birth	batch2	maternal_blood

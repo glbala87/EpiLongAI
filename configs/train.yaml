@@ -1,0 +1,118 @@
+# =============================================================================
+# EpiLongAI — Training configuration
+# =============================================================================
+
+# --- Data ---
+data:
+  windows_path: "data/windows/windows.parquet"
+  metadata_path: "data/synthetic/metadata.tsv"
+  label_column: "group"             # column in metadata for target labels
+  label_map:                        # mapping from string labels → integers
+    FTB: 0
+    PTB: 1
+  split:
+    test_size: 0.15
+    val_size: 0.15
+    stratify: true
+    random_seed: 42
+
+# --- Dataset ---
+dataset:
+  mode: "methylation"               # methylation | sequence | multimodal
+  sequence_encoding: "onehot"        # onehot | tokenized
+  max_sequence_length: 1000          # bp; pad/truncate to this
+
+# --- Model ---
+model:
+  type: "baseline_mlp"              # baseline_mlp | multimodal
+  task: "classification"            # classification | regression
+  num_classes: 2
+
+  # Baseline MLP settings
+  mlp:
+    hidden_dims: [256, 128, 64]
+    dropout: 0.3
+    batch_norm: true
+    activation: "relu"
+
+  # Multimodal settings (used when type == multimodal)
+  multimodal:
+    sequence_encoder: "cnn"          # cnn | transformer
+    cnn:
+      channels: [64, 128, 256]
+      kernel_sizes: [7, 5, 3]
+      pool_size: 2
+    transformer:
+      d_model: 128
+      nhead: 4
+      num_layers: 2
+      dim_feedforward: 256
+    methylation_encoder:
+      hidden_dims: [128, 64]
+      dropout: 0.2
+    variant_encoder:
+      hidden_dims: [64, 32]
+      dropout: 0.2
+    fusion:
+      method: "concatenate"          # concatenate | cross_attention
+      hidden_dim: 128
+
+  # Long-context SSM settings (used when type == long_context)
+  long_context:
+    n_input_channels: 8              # 5 seq + 3 methylation tracks
+    d_model: 256
+    n_layers: 6
+    d_state: 16
+    expand: 2
+    pool: "mean"                     # mean | max | cls
+    dropout: 0.1
+    gradient_checkpointing: true
+
+  # Population-aware settings
+  population:
+    enabled: false
+    n_populations: 10
+    embed_dim: 16
+    n_af_features: 7
+    conditioning: "concatenate"      # concatenate | film
+
+# --- Training ---
+training:
+  epochs: 10
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: "adamw"                 # adam | adamw | sgd
+  scheduler:
+    type: "cosine"                   # cosine | step | plateau | none
+    T_max: 100                       # for cosine
+    step_size: 30                    # for step
+    gamma: 0.1                       # for step
+    patience: 10                     # for plateau
+  early_stopping:
+    enabled: true
+    patience: 15
+    metric: "val_f1"
+    mode: "max"                      # max | min
+  class_weights: "balanced"          # balanced | null | list of floats
+  mixed_precision: true
+  gradient_clip: 1.0
+  seed: 42
+
+# --- Checkpointing ---
+checkpointing:
+  save_dir: "checkpoints"
+  save_best: true
+  save_every_n_epochs: 10
+  monitor_metric: "val_f1"
+  monitor_mode: "max"
+
+# --- Output ---
+output:
+  results_dir: "results"
+  plots_dir: "results/plots"
+  log_file: "logs/training.log"
+
+# --- Logging ---
+logging:
+  level: "INFO"

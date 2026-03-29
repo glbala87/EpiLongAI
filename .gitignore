@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data (large files — track with DVC or Git LFS if needed)
+data/raw/
+data/processed/
+data/windows/
+data/labels/
+*.parquet
+*.h5
+*.hdf5
+*.bam
+*.bai
+*.fastq
+*.fastq.gz
+*.fasta
+*.fasta.fai
+*.fa
+*.fa.fai
+*.vcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.bed
+
+# Model checkpoints
+checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# Results (regenerable)
+results/
+logs/
+
+# Snakemake
+.snakemake/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.key
+credentials.*

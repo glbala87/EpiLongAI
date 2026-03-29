@@ -1,0 +1,35 @@
+# =============================================================================
+# EpiLongAI — Snakemake workflow configuration
+# =============================================================================
+#
+# Paths can be overridden on the CLI:
+#   snakemake --config raw_dir=my/data metadata=my/meta.tsv
+# =============================================================================
+
+# --- Input data ---
+raw_dir:          "data/raw"              # directory with per-sample methylation files
+metadata:         "data/metadata.tsv"     # sample metadata (sample_id, group, ...)
+fasta:            null                    # reference genome FASTA (optional)
+vcf_dir:          null                    # directory with per-sample VCFs (optional)
+
+# --- Pipeline configs ---
+pipeline_config:  "configs/default.yaml"  # ingestion + windowing + labeling params
+train_config:     "configs/train.yaml"    # model + training params
+
+# --- Windowing (used by variant processing rule) ---
+window_size:      1000
+stride:           1000
+
+# --- Output directories ---
+processed_dir:    "data/processed"
+windows_dir:      "data/windows"
+labels_dir:       "data/labels"
+checkpoint_dir:   "checkpoints"
+results_dir:      "results"
+benchmark_dir:    "results/benchmark"
+reports_dir:      "results/reports"
+figures_dir:      "results/figures"
+
+# --- Prediction on new samples ---
+predict_dir:       "results/predictions"
+predict_input_dir: "data/raw"             # new samples for inference (defaults to raw_dir)
