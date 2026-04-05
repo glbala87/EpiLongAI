@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: epilongai-config
+  namespace: epilongai
+  labels:
+    app.kubernetes.io/name: epilongai
+data:
+  # API server environment
+  EPILONGAI_CONFIG: "/app/configs/train.yaml"
+  EPILONGAI_CHECKPOINT: "/app/checkpoints/best.pt"
+  EPILONGAI_AUTH_ENABLED: "true"
+  EPILONGAI_CORS_ORIGINS: "https://epilongai.example.com"
+  EPILONGAI_REDIS_URL: "redis://redis.epilongai.svc.cluster.local:6379/0"
+  PYTHONUNBUFFERED: "1"
+
+  # Reference training config — mount your own via PVC to override
+  train.yaml: |
+    data:
+      windows_path: "data/windows/windows.parquet"
+      metadata_path: "data/synthetic/metadata.tsv"
+      label_column: "group"
+      label_map:
+        FTB: 0
+        PTB: 1
+      split:
+        test_size: 0.15
+        val_size: 0.15
+        stratify: true
+        random_seed: 42
+
+    dataset:
+      mode: "methylation"
+      sequence_encoding: "onehot"
+      max_sequence_length: 1000
+
+    model:
+      type: "baseline_mlp"
+      task: "classification"
+      num_classes: 2
+      mlp:
+        hidden_dims: [256, 128, 64]
+        dropout: 0.3
+        batch_norm: true
+        activation: "relu"
+
+    training:
+      epochs: 10
+      batch_size: 32
+      learning_rate: 0.001
+      weight_decay: 0.0001
+      optimizer: "adamw"
+      scheduler:
+        type: "cosine"
+        T_max: 100
+      early_stopping:
+        enabled: true
+        patience: 15
+        metric: "val_f1"
+        mode: "max"
+      class_weights: "balanced"
+      mixed_precision: true
+      gradient_clip: 1.0
+      seed: 42
+
+    checkpointing:
+      save_dir: "checkpoints"
+      save_best: true
+      monitor_metric: "val_f1"
+      monitor_mode: "max"
+
+    output:
+      results_dir: "results"
+      plots_dir: "results/plots"
+      log_file: "logs/training.log"
+
+    logging:
+      level: "INFO"

@@ -45,6 +45,8 @@ api = [
     "fastapi>=0.104",
     "uvicorn[standard]>=0.24",
     "python-multipart>=0.0.6",
+    "redis>=5.0",
+    "prometheus_client>=0.20",
 ]
 workflow = [
     "snakemake>=8.0",
@@ -52,6 +54,7 @@ workflow = [
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
+    "httpx>=0.25",
     "ruff>=0.1",
     "mypy>=1.5",
     "pre-commit>=3.4",

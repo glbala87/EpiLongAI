@@ -1,0 +1,62 @@
+# =============================================================================
+# EpiLongAI — Docker Compose (local development)
+# =============================================================================
+# Usage:
+#   docker compose up -d          # start services
+#   docker compose logs -f api    # tail API logs
+#   docker compose down -v        # stop and remove volumes
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      EPILONGAI_REDIS_URL: "redis://redis:6379/0"
+      EPILONGAI_CONFIG: "/app/configs/train.yaml"
+      EPILONGAI_CHECKPOINT: "/app/checkpoints/best.pt"
+      EPILONGAI_AUTH_ENABLED: "false"
+      EPILONGAI_CORS_ORIGINS: "*"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./configs:/app/configs:ro
+      - checkpoints:/app/checkpoints
+    healthcheck:
+      test: >
+        python -c "
+        import urllib.request, json;
+        r = urllib.request.urlopen('http://localhost:8000/health');
+        d = json.loads(r.read());
+        exit(0 if d.get('model_loaded') else 1)
+        "
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+
+volumes:
+  checkpoints:
+    driver: local
+  redis_data:
+    driver: local

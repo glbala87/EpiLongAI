@@ -223,24 +223,41 @@ class Trainer:
         n_batches = 0
 
         for batch in self.train_loader:
-            self.optimizer.zero_grad()
-            loss = self._forward_loss(batch)
+            try:
+                self.optimizer.zero_grad()
+                loss = self._forward_loss(batch)
 
-            if self.use_amp:
-                self.scaler.scale(loss).backward()
-                if self.grad_clip > 0:
-                    self.scaler.unscale_(self.optimizer)
-                    nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                loss.backward()
-                if self.grad_clip > 0:
-                    nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
-                self.optimizer.step()
+                # Skip batches with non-finite loss (NaN / Inf)
+                if not torch.isfinite(loss):
+                    logger.warning(f"Non-finite loss detected at batch {n_batches + 1}, skipping")
+                    self.optimizer.zero_grad()
+                    continue
 
-            total_loss += loss.item()
-            n_batches += 1
+                if self.use_amp:
+                    self.scaler.scale(loss).backward()
+                    if self.grad_clip > 0:
+                        self.scaler.unscale_(self.optimizer)
+                        nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    loss.backward()
+                    if self.grad_clip > 0:
+                        nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
+                    self.optimizer.step()
+
+                total_loss += loss.item()
+                n_batches += 1
+            except RuntimeError as e:
+                if "out of memory" in str(e):
+                    logger.error(
+                        f"GPU OOM at epoch {self.current_epoch}, batch {n_batches + 1}. "
+                        f"Try reducing batch_size (currently {self.cfg.get('batch_size', 'unknown')})"
+                    )
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    continue
+                raise
 
         return total_loss / max(n_batches, 1)
 
@@ -354,8 +371,24 @@ class Trainer:
 
     def _save_checkpoint(self, filename: str) -> None:
         path = self.ckpt_dir / filename
+        # Determine model type for validation on load
+        from epilongai.models.baseline_mlp import BaselineMLP
+        from epilongai.models.long_context_model import LongContextGenomicModel
+        from epilongai.models.population_aware import PopulationAwareModel
+
+        model = self.model
+        if isinstance(model, PopulationAwareModel):
+            model = model.backbone
+        if isinstance(model, BaselineMLP):
+            mtype = "baseline_mlp"
+        elif isinstance(model, LongContextGenomicModel):
+            mtype = "long_context"
+        else:
+            mtype = "multimodal"
+
         torch.save({
             "epoch": self.current_epoch,
+            "model_type": mtype,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "best_metric": self.best_metric,
@@ -368,8 +401,43 @@ class Trainer:
 
     def load_checkpoint(self, path: str | Path) -> None:
         """Resume training from a checkpoint."""
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {path}")
+
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
-        self.model.load_state_dict(ckpt["model_state_dict"])
+
+        # Validate model type if recorded
+        if "model_type" in ckpt:
+            from epilongai.models.baseline_mlp import BaselineMLP
+            from epilongai.models.long_context_model import LongContextGenomicModel
+            from epilongai.models.population_aware import PopulationAwareModel
+
+            model = self.model
+            if isinstance(model, PopulationAwareModel):
+                model = model.backbone
+            if isinstance(model, BaselineMLP):
+                current_mtype = "baseline_mlp"
+            elif isinstance(model, LongContextGenomicModel):
+                current_mtype = "long_context"
+            else:
+                current_mtype = "multimodal"
+
+            if ckpt["model_type"] != current_mtype:
+                raise RuntimeError(
+                    f"Checkpoint model type mismatch: checkpoint is '{ckpt['model_type']}' "
+                    f"but current model is '{current_mtype}'. "
+                    f"Ensure you are loading a checkpoint trained with the same model type."
+                )
+
+        try:
+            self.model.load_state_dict(ckpt["model_state_dict"])
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"Checkpoint architecture mismatch: {e}. "
+                f"Ensure the checkpoint was trained with the same model configuration."
+            ) from e
+
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         self.best_metric = ckpt.get("best_metric", self.best_metric)
         self.history = ckpt.get("history", {})

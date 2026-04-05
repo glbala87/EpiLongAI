@@ -1,12 +1,38 @@
 """EpiLongAI command-line interface."""
 
+from __future__ import annotations
+
 import typer
+from loguru import logger
 
 app = typer.Typer(
     name="epilongai",
     help="Deep learning pipeline for ONT methylation data analysis.",
     no_args_is_help=True,
 )
+
+
+# ---------------------------------------------------------------------------
+# Path sanitization helper
+# ---------------------------------------------------------------------------
+
+def _safe_path(p: str | None, *, must_exist: bool = False) -> str | None:
+    """Validate a CLI path argument and return the sanitized string.
+
+    Returns ``None`` unchanged so callers can pass optional arguments through
+    without extra guards.  Raises ``typer.BadParameter`` on traversal or
+    sensitive-directory violations.
+    """
+    if p is None:
+        return None
+    from epilongai.utils.config import sanitize_path
+
+    try:
+        resolved = sanitize_path(p, must_exist=must_exist)
+    except (ValueError, FileNotFoundError) as exc:
+        logger.error(f"Path validation failed for '{p}': {exc}")
+        raise typer.BadParameter(str(exc))
+    return str(resolved)
 
 
 # ---------------------------------------------------------------------------
@@ -20,6 +46,11 @@ def ingest(
     output: str = typer.Option("data/processed", "--output", "-o", help="Output directory"),
 ) -> None:
     """Parse and validate ONT methylation files."""
+    input_dir = _safe_path(input_dir, must_exist=True)
+    metadata = _safe_path(metadata)
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+
     from epilongai.data.data_ingestion import run_ingestion
 
     run_ingestion(input_dir=input_dir, metadata_path=metadata, config_path=config, output_dir=output)
@@ -36,6 +67,11 @@ def window(
     fasta: str = typer.Option(None, "--fasta", "-f", help="Reference genome FASTA"),
 ) -> None:
     """Create genomic windows from methylation data."""
+    input_path = _safe_path(input_path, must_exist=True)
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+    fasta = _safe_path(fasta)
+
     from epilongai.data.windowing import run_windowing
 
     run_windowing(input_path=input_path, config_path=config, output_dir=output, fasta_path=fasta)
@@ -50,6 +86,9 @@ def train(
     resume: str = typer.Option(None, "--resume", "-r", help="Checkpoint path to resume from"),
 ) -> None:
     """Train a model on windowed methylation data."""
+    config = _safe_path(config, must_exist=True)
+    resume = _safe_path(resume)
+
     from epilongai.training.train import run_training
 
     run_training(config_path=config, resume_path=resume)
@@ -65,6 +104,9 @@ def evaluate(
     split: str = typer.Option("test", "--split", "-s", help="Data split to evaluate on"),
 ) -> None:
     """Evaluate a trained model."""
+    config = _safe_path(config, must_exist=True)
+    checkpoint = _safe_path(checkpoint, must_exist=True)
+
     from epilongai.training.evaluate import run_evaluation
 
     run_evaluation(config_path=config, checkpoint_path=checkpoint, split=split)
@@ -82,6 +124,12 @@ def predict(
     fasta: str = typer.Option(None, "--fasta", "-f", help="Reference FASTA"),
 ) -> None:
     """Run inference on new samples."""
+    input_dir = _safe_path(input_dir, must_exist=True)
+    checkpoint = _safe_path(checkpoint, must_exist=True)
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+    fasta = _safe_path(fasta)
+
     from epilongai.training.predict import run_prediction
 
     run_prediction(
@@ -104,6 +152,10 @@ def interpret(
     top_k: int = typer.Option(50, "--top-k", help="Number of top features/regions to report"),
 ) -> None:
     """Generate interpretability reports for a trained model."""
+    checkpoint = _safe_path(checkpoint, must_exist=True)
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+
     from epilongai.analysis.interpret import run_interpretation
 
     run_interpretation(
@@ -122,6 +174,11 @@ def label_regions(
     output: str = typer.Option("data/labels", "--output", "-o", help="Output directory"),
 ) -> None:
     """Derive DMR-style labels by comparing case vs control windows."""
+    windows = _safe_path(windows, must_exist=True)
+    metadata = _safe_path(metadata, must_exist=True)
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+
     from epilongai.analysis.region_labeling import run_region_labeling
 
     run_region_labeling(
@@ -139,6 +196,10 @@ def variants(
     output: str = typer.Option("data/processed", "--output", "-o", help="Output directory"),
 ) -> None:
     """Parse VCF files and compute per-window variant features."""
+    vcf_dir = _safe_path(vcf_dir, must_exist=True)
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+
     from pathlib import Path
 
     from epilongai.data.variant_processing import process_vcf_directory
@@ -176,6 +237,13 @@ def rna_integrate(
     normalize: str = typer.Option("log2_tpm", "--normalize", help="Normalisation method: log2_tpm | zscore | quantile"),
 ) -> None:
     """Integrate RNA-seq expression data with methylation windows."""
+    expression = _safe_path(expression, must_exist=True)
+    windows = _safe_path(windows, must_exist=True)
+    gene_bed = _safe_path(gene_bed)
+    gene_gtf = _safe_path(gene_gtf)
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+
     from pathlib import Path
 
     import pandas as pd
@@ -231,6 +299,9 @@ def benchmark(
     n_folds: int = typer.Option(5, "--folds", help="Number of CV folds"),
 ) -> None:
     """Run benchmarking against baseline models."""
+    config = _safe_path(config, must_exist=True)
+    output = _safe_path(output)
+
     from pathlib import Path
 
     import numpy as np
@@ -272,6 +343,10 @@ def report(
     output: str = typer.Option("results/reports", "--output", "-o", help="Output directory"),
 ) -> None:
     """Generate clinical risk reports for predicted samples."""
+    predictions = _safe_path(predictions, must_exist=True)
+    model_checkpoint = _safe_path(model_checkpoint, must_exist=True)
+    output = _safe_path(output)
+
     import pandas as pd
 
     from epilongai.analysis.clinical_scoring import compute_risk_scores, generate_batch_reports
@@ -293,6 +368,9 @@ def serve(
     checkpoint: str = typer.Option("checkpoints/best.pt", "--checkpoint", "-k", help="Model checkpoint"),
 ) -> None:
     """Start the FastAPI prediction server."""
+    config = _safe_path(config, must_exist=True)
+    checkpoint = _safe_path(checkpoint, must_exist=True)
+
     import os
     os.environ["EPILONGAI_CONFIG"] = config
     os.environ["EPILONGAI_CHECKPOINT"] = checkpoint
@@ -314,6 +392,12 @@ def register(
     registry_dir: str = typer.Option("model_registry", "--registry", help="Registry directory"),
 ) -> None:
     """Register a trained model in the model registry."""
+    checkpoint = _safe_path(checkpoint, must_exist=True)
+    config = _safe_path(config, must_exist=True)
+    metrics_file = _safe_path(metrics_file)
+    data_path = _safe_path(data_path)
+    registry_dir = _safe_path(registry_dir)
+
     import json as _json
 
     from epilongai.utils.model_registry import ModelRegistry
@@ -341,6 +425,8 @@ def models(
     registry_dir: str = typer.Option("model_registry", "--registry", help="Registry directory"),
 ) -> None:
     """List all registered models."""
+    registry_dir = _safe_path(registry_dir)
+
     from epilongai.utils.model_registry import ModelRegistry
 
     reg = ModelRegistry(registry_dir)

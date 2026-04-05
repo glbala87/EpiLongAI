@@ -5,6 +5,7 @@
 [![CI](https://github.com/glbala87/EpiLongAI/actions/workflows/ci.yml/badge.svg)](https://github.com/glbala87/EpiLongAI/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
+[![Tests](https://img.shields.io/badge/tests-125%20passing-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -22,7 +23,7 @@ EpiLongAI is an end-to-end pipeline for training deep learning models on ONT seq
   - Multimodal CNN/Transformer (sequence + methylation + variants)
   - Long-context Mamba SSM (50kb--1Mb sequences)
 - **Population-aware modeling** -- learnable population embeddings with FiLM conditioning
-- **Production-ready** -- Pydantic config validation, API key auth, rate limiting, Docker, CI/CD
+- **Production-ready** -- API key auth, CORS, Redis rate limiting, Prometheus metrics, Kubernetes manifests
 - **Manuscript-ready** -- publication-quality figures, benchmarking framework, clinical risk reports
 - **Reproducible** -- Snakemake workflow, YAML configs, seed control, model registry
 
@@ -63,7 +64,6 @@ ONT Methylation Files        VCF Files          RNA-seq
                      |
               +------v------+
               | Output Head |
-              | PTB vs FTB  |
               +------+------+
                      |
        +-------------+-------------+
@@ -93,7 +93,7 @@ pip install -e .
 
 ```bash
 pip install -e ".[dev]"          # development (pytest, ruff, mypy)
-pip install -e ".[api]"          # FastAPI deployment server
+pip install -e ".[api]"          # FastAPI server + Redis + Prometheus
 pip install -e ".[workflow]"     # Snakemake workflow engine
 pip install -e ".[dev,api]"      # everything
 ```
@@ -184,6 +184,8 @@ snakemake --cores 4 -s workflow/Snakefile
 | `epilongai models` | List all registered model versions |
 | `epilongai serve` | Start the FastAPI prediction server |
 
+All CLI commands validate file paths against directory traversal attacks.
+
 ---
 
 ## Model Types
@@ -252,8 +254,8 @@ EpiLongAI/
 │   ├── train.yaml                # Model, training, data split params
 │   └── metadata_template.tsv     # Example metadata format
 ├── epilongai/
-│   ├── cli.py                    # Typer CLI (14 commands)
-│   ├── api.py                    # FastAPI server with auth & rate limiting
+│   ├── cli.py                    # Typer CLI (14 commands, path-sanitized)
+│   ├── api.py                    # FastAPI server (auth, CORS, rate limiting, metrics)
 │   ├── data/
 │   │   ├── data_ingestion.py     # bedMethyl/tabular parsing, chunked I/O
 │   │   ├── windowing.py          # Genomic windows, vectorised features
@@ -267,7 +269,7 @@ EpiLongAI/
 │   │   ├── long_context_model.py # Mamba SSM (50kb-1Mb)
 │   │   └── population_aware.py   # Population embeddings + FiLM
 │   ├── training/
-│   │   ├── trainer.py            # Training loop, AMP, early stopping
+│   │   ├── trainer.py            # Training loop, AMP, NaN guard, OOM recovery
 │   │   ├── train.py              # Training orchestrator
 │   │   ├── evaluate.py           # Evaluation with plots
 │   │   ├── predict.py            # Inference pipeline
@@ -280,23 +282,40 @@ EpiLongAI/
 │   │   ├── clinical_scoring.py   # Risk scores & patient reports
 │   │   └── region_labeling.py    # DMR-style hyper/hypo labeling
 │   └── utils/
-│       ├── config.py             # YAML loading with auto-validation
+│       ├── config.py             # YAML loading, env overrides, path sanitization
 │       ├── schemas.py            # Pydantic config validation (20+ models)
 │       ├── logging.py            # Loguru setup
 │       ├── seed.py               # Reproducibility seeding
 │       └── model_registry.py     # Model versioning & lineage tracking
+├── k8s/                          # Kubernetes deployment manifests
+│   ├── namespace.yaml
+│   ├── deployment.yaml           # 2 replicas, security context, probes
+│   ├── service.yaml              # ClusterIP
+│   ├── ingress.yaml              # TLS + nginx
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   ├── redis.yaml                # StatefulSet for rate limiting
+│   └── hpa.yaml                  # Autoscaler (2-10 replicas)
 ├── workflow/
 │   ├── Snakefile                 # Full pipeline DAG (11 rules)
 │   ├── config.yaml               # Workflow path configuration
 │   └── envs/epilongai.yaml       # Conda environment spec
 ├── scripts/
-│   └── generate_synthetic_data.py # Synthetic data for testing
-├── tests/                         # 87 tests across 13 test files
-├── Dockerfile                     # GPU-ready Docker deployment
-├── pyproject.toml                 # Package config & dependencies
-├── requirements.txt               # pip dependencies
-├── requirements-api.txt           # API server dependencies
-├── .github/workflows/ci.yml      # GitHub Actions CI/CD
+│   ├── generate_synthetic_data.py # Synthetic data for testing
+│   └── load_test.py              # Load testing (p50/p95/p99 latency)
+├── tests/                        # 125 tests across 15 test files
+│   ├── test_api/                 # 18 API endpoint tests
+│   ├── test_integration/         # 20 E2E pipeline tests
+│   ├── test_data/                # Data pipeline tests
+│   ├── test_models/              # Model architecture tests
+│   ├── test_training/            # Metrics tests
+│   └── test_analysis/            # Analysis module tests
+├── Dockerfile                    # Multi-stage, non-root, GPU-ready
+├── docker-compose.yml            # API + Redis for local dev
+├── pyproject.toml                # Package config & dependencies
+├── requirements.txt              # pip dependencies
+├── requirements-api.txt          # API server dependencies
+├── .github/workflows/ci.yml     # CI/CD (Python 3.10/3.11/3.12)
 └── .gitignore
 ```
 
@@ -378,6 +397,23 @@ training:
 
 Config validation is automatic via Pydantic -- typos and invalid values are caught at load time.
 
+### Environment variable overrides
+
+Override any YAML config value via environment variables. Use `EPILONGAI_` prefix with double underscore `__` for nesting:
+
+```bash
+# Override training batch size
+export EPILONGAI_TRAINING__BATCH_SIZE=128
+
+# Override model type
+export EPILONGAI_MODEL__TYPE=multimodal
+
+# Override learning rate
+export EPILONGAI_TRAINING__LEARNING_RATE=0.0005
+```
+
+Values are auto-cast: `"true"`/`"false"` to bool, numeric strings to int/float.
+
 ---
 
 ## API Deployment
@@ -388,7 +424,15 @@ Config validation is automatic via Pydantic -- typos and invalid values are caug
 epilongai serve --port 8000 --checkpoint checkpoints/best.pt
 ```
 
-### Docker
+### Docker Compose (recommended for local dev)
+
+```bash
+docker-compose up --build
+```
+
+This starts the API server on port 8000 with a Redis backend for rate limiting. Configs and checkpoints are mounted as volumes.
+
+### Docker (standalone)
 
 ```bash
 docker build -t epilongai .
@@ -404,6 +448,22 @@ docker run --gpus all -p 8000:8000 \
     epilongai
 ```
 
+### Kubernetes
+
+Full k8s manifests are provided in `k8s/`:
+
+```bash
+# Deploy
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/
+
+# Check status
+kubectl -n epilongai get pods
+kubectl -n epilongai get hpa
+```
+
+Includes: Deployment (2 replicas, security context, liveness/readiness probes), Service, Ingress (TLS), ConfigMap, Secret, Redis StatefulSet, HPA (autoscales 2-10 replicas at 70% CPU).
+
 ### Authentication
 
 ```bash
@@ -413,19 +473,34 @@ EPILONGAI_API_KEYS=my-secret-key-1,my-secret-key-2 \
 epilongai serve
 ```
 
-### Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Health check (no auth required) |
-| `GET` | `/model_info` | Model metadata |
-| `POST` | `/predict_sample` | Predict from feature vectors (JSON) |
-| `POST` | `/predict_methylation` | Predict from methylation file upload |
-| `POST` | `/predict_variant` | Predict from methylation + VCF upload |
-
-### Example request
+### CORS
 
 ```bash
+# Allow specific origins
+EPILONGAI_CORS_ORIGINS=https://app.example.com,https://admin.example.com \
+epilongai serve
+```
+
+No CORS is allowed by default (restrictive).
+
+### Endpoints
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/health` | No | Health check (model, Redis, GPU, uptime) |
+| `GET` | `/metrics` | No | Prometheus metrics |
+| `GET` | `/model_info` | Yes | Model metadata |
+| `POST` | `/predict_sample` | Yes | Predict from feature vectors (JSON) |
+| `POST` | `/predict_methylation` | Yes | Predict from methylation file upload |
+| `POST` | `/predict_variant` | Yes | Predict from methylation + VCF upload |
+
+### Example requests
+
+```bash
+# Health check (includes Redis, GPU, uptime status)
+curl http://localhost:8000/health
+
+# Predict from features
 curl -X POST http://localhost:8000/predict_sample \
     -H "Content-Type: application/json" \
     -H "X-API-Key: my-secret-key-1" \
@@ -433,6 +508,55 @@ curl -X POST http://localhost:8000/predict_sample \
         "features": [[0.65, 0.60, 0.02, 8, 25.0, 0.3, 0.1]],
         "sample_ids": ["patient_001"]
     }'
+
+# Upload methylation file
+curl -X POST http://localhost:8000/predict_methylation \
+    -H "X-API-Key: my-secret-key-1" \
+    -F "file=@sample.tsv"
+
+# Prometheus metrics
+curl http://localhost:8000/metrics
+```
+
+### API environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `EPILONGAI_CONFIG` | `configs/train.yaml` | Path to training config |
+| `EPILONGAI_CHECKPOINT` | `checkpoints/best.pt` | Path to model checkpoint |
+| `EPILONGAI_AUTH_ENABLED` | `false` | Enable API key authentication |
+| `EPILONGAI_API_KEYS` | (empty) | Comma-separated valid API keys |
+| `EPILONGAI_API_KEYS_FILE` | `.api_keys` | Path to API keys file |
+| `EPILONGAI_CORS_ORIGINS` | (empty) | Comma-separated allowed origins |
+| `EPILONGAI_REDIS_URL` | `redis://localhost:6379/0` | Redis URL for rate limiting |
+| `EPILONGAI_RATE_LIMIT` | `60` | Max requests per minute per IP |
+| `EPILONGAI_MAX_UPLOAD_MB` | `500` | Max file upload size in MB |
+
+### Observability
+
+The API exports Prometheus metrics at `/metrics`:
+
+| Metric | Type | Description |
+|---|---|---|
+| `predictions_total` | Counter | Total predictions by endpoint and status |
+| `prediction_duration_seconds` | Histogram | Prediction latency by endpoint |
+| `rate_limit_rejections_total` | Counter | Rate limit rejections |
+| `model_load_duration_seconds` | Gauge | Time to load model on startup |
+| `active_requests` | Gauge | Currently in-flight requests |
+
+Every request includes an `X-Request-ID` header (UUID4) for correlation across logs and services.
+
+The `/health` endpoint reports:
+
+```json
+{
+  "status": "ok",
+  "model_loaded": true,
+  "device": "cuda",
+  "redis_connected": true,
+  "gpu_available": true,
+  "uptime_seconds": 3621.5
+}
 ```
 
 ---
@@ -551,6 +675,87 @@ Each version stores: checkpoint, frozen config, metrics, git hash, data hash.
 
 ---
 
+## Load Testing
+
+A built-in load test script requires no external dependencies:
+
+```bash
+python scripts/load_test.py \
+    --url http://localhost:8000 \
+    --workers 10 \
+    --requests 100
+
+# Output:
+# Total requests:  100
+# Duration:        2.34s
+# Throughput:      42.7 req/s
+# Latency p50:    18.2ms
+# Latency p95:    45.1ms
+# Latency p99:    62.3ms
+# Error rate:     0.0%
+```
+
+---
+
+## Training Resilience
+
+The training loop includes production-hardening features:
+
+- **NaN/Inf guard** -- Non-finite loss values are detected and the batch is skipped with a warning
+- **GPU OOM recovery** -- Out-of-memory errors are caught, CUDA cache is cleared, and training continues with a suggestion to reduce batch size
+- **Checkpoint validation** -- Model type is saved in checkpoints and validated on load; architecture mismatches produce clear error messages
+- **Early stopping** -- Configurable patience and metric monitoring
+- **Mixed precision** -- Automatic AMP on CUDA devices
+
+---
+
+## Security
+
+- **API key authentication** with constant-time comparison (`secrets.compare_digest`)
+- **CORS middleware** -- restrictive by default, configurable per-origin
+- **Rate limiting** -- Redis-backed (persistent across restarts) with in-memory fallback
+- **Path sanitization** -- all CLI file paths validated against directory traversal
+- **Streaming upload validation** -- files read in 64KB chunks, rejected early if oversized
+- **Non-root Docker** -- container runs as uid 1000, read-only filesystem
+- **Kubernetes security context** -- `runAsNonRoot`, `readOnlyRootFilesystem`, `drop: [ALL]`
+
+---
+
+## Testing
+
+```bash
+# Run all 125 tests
+pytest tests/ -v
+
+# By module
+pytest tests/test_api/ -v           # API endpoints (18 tests)
+pytest tests/test_integration/ -v   # E2E pipeline (20 tests)
+pytest tests/test_models/ -v        # model architectures
+pytest tests/test_data/ -v          # data pipeline
+pytest tests/test_analysis/ -v      # analysis modules
+pytest tests/test_training/ -v      # metrics
+
+# With coverage
+pytest tests/ --cov=epilongai --cov-report=html
+
+# Lint
+ruff check epilongai/ tests/
+```
+
+### Test coverage
+
+| Category | Tests | What's covered |
+|---|---|---|
+| API endpoints | 18 | Health, auth, rate limiting, predictions, uploads, size limits |
+| Integration/E2E | 20 | Full pipeline: ingest → window → train → evaluate → predict |
+| Data pipeline | 22 | Ingestion, windowing, variants, RNA-seq |
+| Models | 30 | Baseline MLP, multimodal, Mamba SSM, population-aware |
+| Training | 11 | Metrics, trainer |
+| Analysis | 24 | Benchmarking, clinical scoring, region labeling |
+| **Total** | **125** | |
+
+---
+
 ## End-to-End Test Results
 
 Tested on 20 synthetic samples (10 PTB, 10 FTB):
@@ -568,34 +773,13 @@ Pipeline produced: training curves, ROC/PR/CM plots, sample predictions, top pre
 
 ---
 
-## Testing
-
-```bash
-# Run all 87 tests
-pytest tests/ -v
-
-# By module
-pytest tests/test_models/ -v       # model architectures
-pytest tests/test_data/ -v         # data pipeline
-pytest tests/test_analysis/ -v     # analysis modules
-pytest tests/test_training/ -v     # metrics
-
-# With coverage
-pytest tests/ --cov=epilongai --cov-report=html
-
-# Lint
-ruff check epilongai/ tests/
-```
-
----
-
 ## Biological Context
 
 ### Why ONT methylation?
 
 - DNA methylation at CpG sites is a stable epigenetic mark measurable from blood, tissue, or any biological sample
 - ONT long reads detect methylation natively during sequencing — no bisulfite conversion needed
-- Long reads (10–100kb) preserve haplotype and long-range methylation structure
+- Long reads (10--100kb) preserve haplotype and long-range methylation structure
 - Methylation is implicated in hundreds of phenotypes: cancer, preterm birth, neurodegeneration, aging, metabolic disease, immune disorders, environmental exposures
 
 ### Example use cases
